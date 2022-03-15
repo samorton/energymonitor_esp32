@@ -13,13 +13,13 @@
 #include <WiFi.h>
 #include <tinyxml2.h>
 #include <Firebase_ESP_Client.h>
-//#include "main.h"
-
+#include "main.h"
+#include <Regexp.h>
 using namespace tinyxml2;
 
-//Provide the token generation process info.
+// Provide the token generation process info.
 #include "addons/TokenHelper.h"
-//Provide the RTDB payload printing info and other helper functions.
+// Provide the RTDB payload printing info and other helper functions.
 #include "addons/RTDBHelper.h"
 
 // Insert your network credentials
@@ -30,48 +30,53 @@ using namespace tinyxml2;
 #define API_KEY "AIzaSyDMlH3gkuTJSHkFPqKoxwl5zvmvlTXoZ0g"
 
 // Insert RTDB URLefine the RTDB URL */
-//#define DATABASE_URL "firebase-adminsdk-43brg@utilitymeter-576d7.iam.gserviceaccount.com" 
-#define DATABASE_URL "https://utilitymeter-576d7-default-rtdb.europe-west1.firebasedatabase.app" 
+//#define DATABASE_URL "firebase-adminsdk-43brg@utilitymeter-576d7.iam.gserviceaccount.com"
+#define DATABASE_URL "https://utilitymeter-576d7-default-rtdb.europe-west1.firebasedatabase.app"
+
+#define USER_EMAIL "sam.orton@gmail.com"
+#define USER_PASSWORD "jamdonut"
+
 
 #define RXp2 16
 #define TXp2 17
 
-
-
-//Define Firebase Data object
+// Define Firebase Data object
 FirebaseData fbdo;
 
+//firebase auth
 FirebaseAuth auth;
 FirebaseConfig config;
 
-unsigned long sendDataPrevMillis = 0;
-int count = 0;
+// Variable to save USER UID
+String uid;
+
 bool signupOK = false;
 
 
+String energyPath = "/energy";
+String timePath = "/timestamp";
+
+// Database main path (to be updated in setup with the user UID)
+String databasePath;
+
+
+// Parent Node (to be updated in every loop)
+String parentPath;
+
+int timestamp;
+FirebaseJson json;
 
 
 
 
-void parseData(string data) {
-
-    string longMsg= "<msg><src>CC128-v1.29</src><dsb>01385</dsb><time>21:04:40</time><hist><dsw>01387|/dsw><type>1</type><units>kwhr</units><data><sensor>0</sensor><h570>0.589</h570><h56x>0.416</h568><h566>0.506</h566><h564>0.4d0</h564></data><data><sensor>1</sensor><h570>0.000</h570><h5f8>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>2x/sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>3</sensor><he70>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>4</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>5</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>6</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>7</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</�566><h564>0.000</h564></data><data><sensor>8</sensor><h570>0.000</�570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>9</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data></hist></msg>";
-    string shortMsg = "<msg><src>CC128-v1.29</src><dsb>01385</dsb><time>21:53:45</time><tmpr>19.4</tmpr><sensor>1</sensor><id>00077</id><type>1</type><ch1><watts>00000</watts></ch1><ch2><watts>00563</watts></ch2></msg>";
-
-  
-}
+const char* ntpServer = "pool.ntp.org";
 
 
-
-void setup(){
-  Serial.begin(115200);
-  Serial2.begin(57600, SERIAL_8N1, RXp2, TXp2);
-
-parseData("");
-
+void initWifi(){
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED){
+  while (WiFi.status() != WL_CONNECTED)
+  {
     Serial.print(".");
     delay(300);
   }
@@ -79,77 +84,288 @@ parseData("");
   Serial.print("Connected with IP: ");
   Serial.println(WiFi.localIP());
   Serial.println();
+}
 
-  /* Assign the api key (required) */
+
+void initFirebase() {
+  
+  // Firebase: Assign the api key (required)
   config.api_key = API_KEY;
 
-  /* Assign the RTDB URL (required) */
+  // Firebase: Assign the RTDB URL
   config.database_url = DATABASE_URL;
 
-  /* Sign up */
-  if (Firebase.signUp(&config, &auth, "", "")){
-    Serial.println("ok");
-    signupOK = true;
-  }
-  else{
-    Serial.printf("%s\n", config.signer.signupError.message.c_str());
-  }
-
-  /* Assign the callback function for the long running token generation task */
-  config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
   
-  Firebase.begin(&config, &auth);
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+
+  
+  //Sign up as anon
+  /*
+    if (Firebase.signUp(&config, &auth, "", ""))
+    {
+      Serial.println("Firebase Connected and Authenticated OK");
+      signupOK = true;
+    }
+
+    else
+    {
+      Serial.printf("%s\n", config.signer.signupError.message.c_str());
+    }
+  */
+
+
   Firebase.reconnectWiFi(true);
-}
+  fbdo.setResponseSize(4096);
+  // Assign the callback function for the long running token generation task */
+  config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
+
+  // Assign the maximum retry of token generation
+  config.max_token_generation_retry = 5;
 
 
+  // Initialize the library with the Firebase authen and config
+  Firebase.begin(&config, &auth);
 
-void firebase_write() {
-   if (Firebase.ready() && signupOK && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0)){
-    sendDataPrevMillis = millis();
-    // Write an Int number on the database path test/int
-    if (Firebase.RTDB.setInt(&fbdo, "test/int", count)){
-      Serial.println("PASSED");
-      Serial.println("PATH: " + fbdo.dataPath());
-      Serial.println("TYPE: " + fbdo.dataType());
-    }
-    else {
-      Serial.println("FAILED");
-      Serial.println("REASON: " + fbdo.errorReason());
-    }
-    count++;
-    
-    // Write an Float number on the database path test/float
-    if (Firebase.RTDB.setFloat(&fbdo, "test/float", 0.01 + random(0,100))){
-      Serial.println("PASSED");
-      Serial.println("PATH: " + fbdo.dataPath());
-      Serial.println("TYPE: " + fbdo.dataType());
-    }
-    else {
-      Serial.println("FAILED");
-      Serial.println("REASON: " + fbdo.errorReason());
-    }
+// Getting the user UID might take a few seconds
+  Serial.println("Getting User UID");
+  while ((auth.token.uid) == "") {
+    Serial.print('.');
+    delay(1000);
   }
+  // Print user UID
+  uid = auth.token.uid.c_str();
+  Serial.print("User UID: ");
+  Serial.println(uid);
+
+  // Update database path
+  databasePath = "/UsersData/" + uid + "/readings";
+  
 }
 
 
 
-void loop(){
+void setup()
+{
+  Serial.begin(115200);
+  Serial2.begin(57600, SERIAL_8N1, RXp2, TXp2);
+
+  initWifi();
 
 
-   if (Serial2.available() > 0) {
+  //Set current time
+  configTime(0, 0, ntpServer);
+
+  initFirebase();
+}
+
+// Function that gets current epoch time
+unsigned long getTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    //Serial.println("Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
+}
+
+
+void loop()
+{
+
+  if (Serial2.available() > 0)
+  {
     // read the incoming string:
     String incomingString = Serial2.readString();
 
     Serial.println(incomingString);
 
-
-  parseData(incomingString);
-  
-
+    handleMessage(incomingString);
   }
-   // firebase_write();
 
- 
 }
 
+void handleMessage(String data)
+{
+  // 1. decide what kind of message it is.
+
+  // 2 parse it.
+
+  // 3. whack it in firebase
+
+  if (data.length() < 250)
+  {
+    handleRegularMessage(data);
+  }
+  else
+  {
+    handleHistoryMessage(data);
+  }
+}
+
+
+
+/*
+  <msg>
+    <src>CC128-v1.29</src>
+    <dsb>01385</dsb>
+    <time>21:53:45</time>
+    <tmpr>19.4</tmpr>
+    <sensor>1</sensor>
+    <id>00077</id>
+    <type>1</type>
+    <ch1>
+      <watts>00000</watts>
+    </ch1>
+    <ch2>
+      <watts>00563</watts>
+    </ch2>
+  </msg>
+  */
+
+void handleRegularMessageAsXml(String data)
+{
+
+  XMLDocument xmlDocument;
+
+  char *newData = StringToChar(data);
+
+  Serial.println(newData);
+
+  if (xmlDocument.Parse(newData) != XML_SUCCESS)
+  {
+    Serial.println("Error parsing");
+    return;
+  };
+
+  XMLNode *msg = xmlDocument.FirstChild();
+
+  UsageMsg usage;
+
+  usage.src = msg->FirstChildElement("src")->FirstChild()->ToText()->Value();
+  usage.dsb = atoi(msg->FirstChildElement("dsb")->FirstChild()->ToText()->Value());
+  usage.time = msg->FirstChildElement("time")->FirstChild()->ToText()->Value();
+  usage.tmpr = atof(msg->FirstChildElement("tmpr")->FirstChild()->ToText()->Value());
+  usage.sensor_id = msg->FirstChildElement("id")->FirstChild()->ToText()->Value();
+  usage.sensor_tp = atoi(msg->FirstChildElement("type")->FirstChild()->ToText()->Value());
+  usage.ch1_watts = atoi(msg->FirstChildElement("ch1")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
+  usage.ch2_watts = atoi(msg->FirstChildElement("ch2")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
+
+debug_msg (usage);
+  firebase_write(usage);
+}
+
+void handleRegularMessage(String data)
+{
+
+  int n = 0;
+  UsageMsg usage;
+  usage.src = xml_parse(data, "src", n);
+  usage.dsb = xml_parse(data, "dsb", n).toInt();
+  usage.time = xml_parse(data, "time", n);
+  usage.tmpr = xml_parse(data, "tmpr", n).toFloat();
+  usage.sensor_id = xml_parse(data, "id", n);
+  usage.sensor_tp = xml_parse(data, "type", n).toInt();
+  usage.ch1_watts = xml_parse(data, "watts", n).toInt();
+  usage.ch2_watts = xml_parse(data, "watts", n).toInt();
+
+  //debug_msg (usage);
+  firebase_write(usage);
+}
+
+void debug_msg(UsageMsg msg)
+{
+
+  Serial.printf("src: %s, dsb: %d, time: %s, tmpr: %f, sensor_id: %s, sensor_tp: %d, ch1_watts: %d, ch2_watts: %d\r\n",
+                msg.src, msg.dsb, msg.time, msg.tmpr, msg.sensor_id, msg.sensor_tp, msg.ch1_watts, msg.ch2_watts);
+}
+
+void firebase_write(UsageMsg msg)
+
+{
+
+  debug_msg(msg);
+  if (Firebase.ready() && signupOK)
+  {
+    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/src", msg.src));
+    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/dsb", msg.dsb));
+    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/time", msg.time));
+    evaluate(Firebase.RTDB.setFloat(&fbdo, "Usage/tmpr", msg.tmpr));
+    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/sensor_id", msg.sensor_id));
+    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/sensor_tp", msg.sensor_tp));
+    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch1_watts", msg.ch1_watts));
+    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch2_watts", msg.ch2_watts));
+  }
+}
+
+void evaluate(bool action)
+{
+  if (action)
+  {
+    Serial.println("PASSED:  PATH: " + fbdo.dataPath() + ", TYPE: " + fbdo.dataType());
+  }
+  else
+  {
+    Serial.println("FAILED - REASON: " + fbdo.errorReason());
+  }
+}
+
+// handle the longer messages
+
+/*
+  <msg><src>CC128-v1.29</src><dsb>01385</dsb><time>21:04:40</time><hist><dsw>01387|/dsw><type>1</type><units>kwhr</units><data><sensor>0</sensor><h570>0.589</h570><h56x>0.416</h568><h566>0.506</h566>
+  <h564>0.4d0</h564></data><data><sensor>1</sensor><h570>0.000</h570><h5f8>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>2x/sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566>
+  <h564>0.000</h564></data><data><sensor>3</sensor><he70>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>4</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566>
+  <h564>0.000</h564></data><data><sensor>5</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data><data><sensor>6</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566>
+  <h564>0.000</h564></data><data><sensor>7</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</�566><h564>0.000</h564></data><data><sensor>8</sensor><h570>0.000</�570><h568>0.000</h568><h566>0.000</h566>
+  <h564>0.000</h564></data><data><sensor>9</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data></hist></msg>
+  */
+void handleHistoryMessage(String data)
+{
+}
+
+char *StringToChar(String str)
+{
+
+  int len = str.length() + 1;
+
+  // Prepare the character array (the buffer)
+  char *arr = new char(len);
+
+  // Copy it over
+  str.toCharArray(arr, len);
+
+  arr[len] = 0;
+
+  return arr;
+}
+
+void parseMessageDataAsRegex(String data)
+{
+  // REgex possibility, too fragile maybe
+  //  https://registry.platformio.org/libraries/nickgammon/Regexp/examples/Match/Match.pde
+}
+
+String xml_parse(String inStr, String needParam, int &startIndex)
+{
+
+  int istart = inStr.indexOf("<" + needParam + ">", startIndex);
+  if (istart> 0)
+  {
+    int n = needParam.length();
+
+    int iend = inStr.indexOf("</" + needParam + ">", istart);
+
+    if (iend > -1)
+      startIndex = iend;
+
+    String result = inStr.substring(istart + n + 2, iend);
+    
+    Serial.println("needParam: " + needParam + ", startIndex:" + startIndex + ", result: " + result);
+
+    return result;
+  }
+  return "";
+}
