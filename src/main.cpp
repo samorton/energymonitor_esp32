@@ -23,8 +23,8 @@ using namespace tinyxml2;
 #include "addons/RTDBHelper.h"
 
 // Insert your network credentials
-#define WIFI_SSID "chips"
-#define WIFI_PASSWORD "kwobanir"
+#define WIFI_SSID "Ham"
+#define WIFI_PASSWORD "k1wobanir"
 
 // Insert Firebase project API Key
 #define API_KEY "AIzaSyDMlH3gkuTJSHkFPqKoxwl5zvmvlTXoZ0g"
@@ -91,20 +91,6 @@ void initFirebase()
 
   auth.user.email = USER_EMAIL;
   auth.user.password = USER_PASSWORD;
-
-  // Sign up as anon
-  /*
-    if (Firebase.signUp(&config, &auth, "", ""))
-    {
-      Serial.println("Firebase Connected and Authenticated OK");
-      signupOK = true;
-    }
-
-    else
-    {
-      Serial.printf("%s\n", config.signer.signupError.message.c_str());
-    }
-  */
 
   Firebase.reconnectWiFi(true);
   fbdo.setResponseSize(4096);
@@ -242,6 +228,7 @@ void handleRegularMessageAsXml(String data)
   firebase_write(usage);
 }
 
+UsageMsg previousMessage;
 void handleRegularMessage(String data)
 {
 
@@ -257,6 +244,12 @@ void handleRegularMessage(String data)
   usage.ch2_watts = xml_parse(data, "watts", n).toInt();
 
   //cal cost
+  
+  if (usage.tmpr < previousMessage.tmpr-2 && usage.tmpr > previousMessage.tmpr + 2){
+    usage.tmpr = previousMessage.tmpr;
+  }
+
+  previousMessage = usage;
 
 /*
 
