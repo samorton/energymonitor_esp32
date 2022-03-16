@@ -36,14 +36,13 @@ using namespace tinyxml2;
 #define USER_EMAIL "sam.orton@gmail.com"
 #define USER_PASSWORD "jamdonut"
 
-
 #define RXp2 16
 #define TXp2 17
 
 // Define Firebase Data object
 FirebaseData fbdo;
 
-//firebase auth
+// firebase auth
 FirebaseAuth auth;
 FirebaseConfig config;
 
@@ -52,27 +51,22 @@ String uid;
 
 bool signupOK = false;
 
-
 String energyPath = "/energy";
 String timePath = "/timestamp";
 
 // Database main path (to be updated in setup with the user UID)
 String databasePath;
 
-
 // Parent Node (to be updated in every loop)
 String parentPath;
 
 int timestamp;
-FirebaseJson json;
 
 
+const char *ntpServer = "pool.ntp.org";
 
-
-const char* ntpServer = "pool.ntp.org";
-
-
-void initWifi(){
+void initWifi()
+{
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED)
@@ -86,21 +80,19 @@ void initWifi(){
   Serial.println();
 }
 
+void initFirebase()
+{
 
-void initFirebase() {
-  
   // Firebase: Assign the api key (required)
   config.api_key = API_KEY;
 
   // Firebase: Assign the RTDB URL
   config.database_url = DATABASE_URL;
 
-  
   auth.user.email = USER_EMAIL;
   auth.user.password = USER_PASSWORD;
 
-  
-  //Sign up as anon
+  // Sign up as anon
   /*
     if (Firebase.signUp(&config, &auth, "", ""))
     {
@@ -114,22 +106,21 @@ void initFirebase() {
     }
   */
 
-
   Firebase.reconnectWiFi(true);
   fbdo.setResponseSize(4096);
   // Assign the callback function for the long running token generation task */
-  config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
+  config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
 
   // Assign the maximum retry of token generation
   config.max_token_generation_retry = 5;
 
-
   // Initialize the library with the Firebase authen and config
   Firebase.begin(&config, &auth);
 
-// Getting the user UID might take a few seconds
+  // Getting the user UID might take a few seconds
   Serial.println("Getting User UID");
-  while ((auth.token.uid) == "") {
+  while ((auth.token.uid) == "")
+  {
     Serial.print('.');
     delay(1000);
   }
@@ -140,10 +131,7 @@ void initFirebase() {
 
   // Update database path
   databasePath = "/UsersData/" + uid + "/readings";
-  
 }
-
-
 
 void setup()
 {
@@ -152,25 +140,25 @@ void setup()
 
   initWifi();
 
-
-  //Set current time
+  // Set current time
   configTime(0, 0, ntpServer);
 
   initFirebase();
 }
 
 // Function that gets current epoch time
-unsigned long getTime() {
+unsigned long getTime()
+{
   time_t now;
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    //Serial.println("Failed to obtain time");
-    return(0);
+  if (!getLocalTime(&timeinfo))
+  {
+    // Serial.println("Failed to obtain time");
+    return (0);
   }
   time(&now);
   return now;
 }
-
 
 void loop()
 {
@@ -184,7 +172,6 @@ void loop()
 
     handleMessage(incomingString);
   }
-
 }
 
 void handleMessage(String data)
@@ -204,8 +191,6 @@ void handleMessage(String data)
     handleHistoryMessage(data);
   }
 }
-
-
 
 /*
   <msg>
@@ -253,7 +238,7 @@ void handleRegularMessageAsXml(String data)
   usage.ch1_watts = atoi(msg->FirstChildElement("ch1")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
   usage.ch2_watts = atoi(msg->FirstChildElement("ch2")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
 
-debug_msg (usage);
+  debug_msg(usage);
   firebase_write(usage);
 }
 
@@ -271,23 +256,66 @@ void handleRegularMessage(String data)
   usage.ch1_watts = xml_parse(data, "watts", n).toInt();
   usage.ch2_watts = xml_parse(data, "watts", n).toInt();
 
-  //debug_msg (usage);
+  //cal cost
+
+/*
+
+For example: let’s predict how much it costs to power a light bulb every hour. 
+A 100 watt light bulb uses 100 watts of power. To convert the power in watts to kilowatt-hours, 
+multiply 100 watts by 1 hour, then divide by 1,000 to find the energy usage in kWh.
+
+Energy = (100 × 1) ÷ 1,000
+Energy = 100 ÷ 1,000
+Energy = 0.1 kWh
+
+If electricity costs $0.12 per kWh, then a 100 watt light bulb will cost 1.2 cents per hour that it’s on.
+
+*/
+
+  debug_msg(usage);
   firebase_write(usage);
 }
 
 void debug_msg(UsageMsg msg)
 {
-
+#ifdef VERBOSE
   Serial.printf("src: %s, dsb: %d, time: %s, tmpr: %f, sensor_id: %s, sensor_tp: %d, ch1_watts: %d, ch2_watts: %d\r\n",
                 msg.src, msg.dsb, msg.time, msg.tmpr, msg.sensor_id, msg.sensor_tp, msg.ch1_watts, msg.ch2_watts);
+#endif
 }
 
 void firebase_write(UsageMsg msg)
-
 {
+  if (Firebase.ready())
+  {
 
-  debug_msg(msg);
-  if (Firebase.ready() && signupOK)
+    
+    timestamp = getTime();
+    Serial.print("time: ");
+    Serial.println(timestamp);
+
+    parentPath = databasePath + "/" + String(timestamp);
+
+    FirebaseJson json;
+
+    json.set("/timestamp", String(timestamp));
+    json.set("/dsb", msg.dsb);
+    json.set("/time", msg.time);
+    json.set("/tmpr", String(msg.tmpr));
+    json.set("/sensor_id", msg.sensor_id);
+    json.set("/sensor_tp", msg.sensor_tp);
+    json.set("/ch1_watts", String(msg.ch1_watts));
+    json.set("/ch2_watts", String(msg.ch2_watts));
+
+    Serial.printf("Set json... %s\n", 
+      Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+    
+  }
+}
+
+void firebase_write_old(UsageMsg msg)
+{
+  if (Firebase.ready())
   {
     evaluate(Firebase.RTDB.setString(&fbdo, "Usage/src", msg.src));
     evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/dsb", msg.dsb));
@@ -352,18 +380,17 @@ String xml_parse(String inStr, String needParam, int &startIndex)
 {
 
   int istart = inStr.indexOf("<" + needParam + ">", startIndex);
-  if (istart> 0)
+  if (istart > 0)
   {
     int n = needParam.length();
-
     int iend = inStr.indexOf("</" + needParam + ">", istart);
-
     if (iend > -1)
       startIndex = iend;
-
     String result = inStr.substring(istart + n + 2, iend);
-    
+
+#ifdef VERBOSE
     Serial.println("needParam: " + needParam + ", startIndex:" + startIndex + ", result: " + result);
+#endif
 
     return result;
   }

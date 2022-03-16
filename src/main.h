@@ -10,9 +10,11 @@ struct UsageMsg
     String time;
     float tmpr;
     String sensor_id;
-    short sensor_tp;
+    int sensor_tp;
     int ch1_watts;
     int ch2_watts;
+    float price;
+    float cost;
 };
 
 void handleMessage(String data);
