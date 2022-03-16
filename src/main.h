@@ -39,5 +39,5 @@ String xml_parse(String inStr,String needParam, int& startIndex);
 
 void debug_msg(UsageMsg msg);
 
-
+void doAnomolyDetection(UsageMsg *pMsg);
 #endif /* MAIN_H */

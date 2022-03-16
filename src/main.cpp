@@ -15,6 +15,7 @@
 #include <Firebase_ESP_Client.h>
 #include "main.h"
 #include <Regexp.h>
+
 using namespace tinyxml2;
 
 // Provide the token generation process info.
@@ -65,117 +66,104 @@ int timestamp;
 
 const char *ntpServer = "pool.ntp.org";
 
-void initWifi()
-{
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(300);
-  }
-  Serial.println();
-  Serial.print("Connected with IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.println();
+void initWifi() {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("Connecting to Wi-Fi");
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.print(".");
+        delay(300);
+    }
+    Serial.println();
+    Serial.print("Connected with IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.println();
 }
 
-void initFirebase()
-{
+void initFirebase() {
 
-  // Firebase: Assign the api key (required)
-  config.api_key = API_KEY;
+    // Firebase: Assign the api key (required)
+    config.api_key = API_KEY;
 
-  // Firebase: Assign the RTDB URL
-  config.database_url = DATABASE_URL;
+    // Firebase: Assign the RTDB URL
+    config.database_url = DATABASE_URL;
 
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
+    auth.user.email = USER_EMAIL;
+    auth.user.password = USER_PASSWORD;
 
-  Firebase.reconnectWiFi(true);
-  fbdo.setResponseSize(4096);
-  // Assign the callback function for the long running token generation task */
-  config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
+    Firebase.reconnectWiFi(true);
+    fbdo.setResponseSize(4096);
+    // Assign the callback function for the long running token generation task */
+    config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
 
-  // Assign the maximum retry of token generation
-  config.max_token_generation_retry = 5;
+    // Assign the maximum retry of token generation
+    config.max_token_generation_retry = 5;
 
-  // Initialize the library with the Firebase authen and config
-  Firebase.begin(&config, &auth);
+    // Initialize the library with the Firebase authen and config
+    Firebase.begin(&config, &auth);
 
-  // Getting the user UID might take a few seconds
-  Serial.println("Getting User UID");
-  while ((auth.token.uid) == "")
-  {
-    Serial.print('.');
-    delay(1000);
-  }
-  // Print user UID
-  uid = auth.token.uid.c_str();
-  Serial.print("User UID: ");
-  Serial.println(uid);
+    // Getting the user UID might take a few seconds
+    Serial.println("Getting User UID");
+    while ((auth.token.uid) == "") {
+        Serial.print('.');
+        delay(1000);
+    }
+    // Print user UID
+    uid = auth.token.uid.c_str();
+    Serial.print("User UID: ");
+    Serial.println(uid);
 
-  // Update database path
-  databasePath = "/UsersData/" + uid + "/readings";
+    // Update database path
+    databasePath = "/UsersData/" + uid + "/readings";
 }
 
-void setup()
-{
-  Serial.begin(115200);
-  Serial2.begin(57600, SERIAL_8N1, RXp2, TXp2);
+void setup() {
+    Serial.begin(115200);
+    Serial2.begin(57600, SERIAL_8N1, RXp2, TXp2);
 
-  initWifi();
+    initWifi();
 
-  // Set current time
-  configTime(0, 0, ntpServer);
+    // Set current time
+    configTime(0, 0, ntpServer);
 
-  initFirebase();
+    initFirebase();
 }
 
 // Function that gets current epoch time
-unsigned long getTime()
-{
-  time_t now;
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    // Serial.println("Failed to obtain time");
-    return (0);
-  }
-  time(&now);
-  return now;
+unsigned long getTime() {
+    time_t now;
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        // Serial.println("Failed to obtain time");
+        return (0);
+    }
+    time(&now);
+    return now;
 }
 
-void loop()
-{
+void loop() {
 
-  if (Serial2.available() > 0)
-  {
-    // read the incoming string:
-    String incomingString = Serial2.readString();
+    if (Serial2.available() > 0) {
+        // read the incoming string:
+        String incomingString = Serial2.readString();
 
-    Serial.println(incomingString);
+        Serial.println(incomingString);
 
-    handleMessage(incomingString);
-  }
+        handleMessage(incomingString);
+    }
 }
 
-void handleMessage(String data)
-{
-  // 1. decide what kind of message it is.
+void handleMessage(String data) {
+    // 1. decide what kind of message it is.
 
-  // 2 parse it.
+    // 2 parse it.
 
-  // 3. whack it in firebase
+    // 3. whack it in firebase
 
-  if (data.length() < 250)
-  {
-    handleRegularMessage(data);
-  }
-  else
-  {
-    handleHistoryMessage(data);
-  }
+    if (data.length() < 250) {
+        handleRegularMessage(data);
+    } else {
+        handleHistoryMessage(data);
+    }
 }
 
 /*
@@ -196,60 +184,66 @@ void handleMessage(String data)
   </msg>
   */
 
-void handleRegularMessageAsXml(String data)
-{
+void handleRegularMessageAsXml(String data) {
 
-  XMLDocument xmlDocument;
+    XMLDocument xmlDocument;
 
-  char *newData = StringToChar(data);
+    char *newData = StringToChar(data);
 
-  Serial.println(newData);
+    Serial.println(newData);
 
-  if (xmlDocument.Parse(newData) != XML_SUCCESS)
-  {
-    Serial.println("Error parsing");
-    return;
-  };
+    if (xmlDocument.Parse(newData) != XML_SUCCESS) {
+        Serial.println("Error parsing");
+        return;
+    };
 
-  XMLNode *msg = xmlDocument.FirstChild();
+    XMLNode *msg = xmlDocument.FirstChild();
 
-  UsageMsg usage;
+    UsageMsg usage;
 
-  usage.src = msg->FirstChildElement("src")->FirstChild()->ToText()->Value();
-  usage.dsb = atoi(msg->FirstChildElement("dsb")->FirstChild()->ToText()->Value());
-  usage.time = msg->FirstChildElement("time")->FirstChild()->ToText()->Value();
-  usage.tmpr = atof(msg->FirstChildElement("tmpr")->FirstChild()->ToText()->Value());
-  usage.sensor_id = msg->FirstChildElement("id")->FirstChild()->ToText()->Value();
-  usage.sensor_tp = atoi(msg->FirstChildElement("type")->FirstChild()->ToText()->Value());
-  usage.ch1_watts = atoi(msg->FirstChildElement("ch1")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
-  usage.ch2_watts = atoi(msg->FirstChildElement("ch2")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
+    usage.src = msg->FirstChildElement("src")->FirstChild()->ToText()->Value();
+    usage.dsb = atoi(msg->FirstChildElement("dsb")->FirstChild()->ToText()->Value());
+    usage.time = msg->FirstChildElement("time")->FirstChild()->ToText()->Value();
+    usage.tmpr = atof(msg->FirstChildElement("tmpr")->FirstChild()->ToText()->Value());
+    usage.sensor_id = msg->FirstChildElement("id")->FirstChild()->ToText()->Value();
+    usage.sensor_tp = atoi(msg->FirstChildElement("type")->FirstChild()->ToText()->Value());
+    usage.ch1_watts = atoi(msg->FirstChildElement("ch1")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
+    usage.ch2_watts = atoi(msg->FirstChildElement("ch2")->FirstChildElement("watts")->FirstChild()->ToText()->Value());
 
-  debug_msg(usage);
-  firebase_write(usage);
+    debug_msg(usage);
+    firebase_write(usage);
 }
 
 UsageMsg previousMessage;
-void handleRegularMessage(String data)
-{
 
-  int n = 0;
-  UsageMsg usage;
-  usage.src = xml_parse(data, "src", n);
-  usage.dsb = xml_parse(data, "dsb", n).toInt();
-  usage.time = xml_parse(data, "time", n);
-  usage.tmpr = xml_parse(data, "tmpr", n).toFloat();
-  usage.sensor_id = xml_parse(data, "id", n);
-  usage.sensor_tp = xml_parse(data, "type", n).toInt();
-  usage.ch1_watts = xml_parse(data, "watts", n).toInt();
-  usage.ch2_watts = xml_parse(data, "watts", n).toInt();
 
-  //cal cost
-  
-  if (usage.tmpr < previousMessage.tmpr-2 && usage.tmpr > previousMessage.tmpr + 2){
-    usage.tmpr = previousMessage.tmpr;
-  }
+void doAnomolyDetection(UsageMsg *pUsage) {
 
-  previousMessage = usage;
+    if (pUsage->tmpr < previousMessage.tmpr - 5 || pUsage->tmpr > previousMessage.tmpr + 5) {
+        pUsage->tmpr = previousMessage.tmpr;
+    }
+
+    previousMessage = *pUsage;
+}
+
+void handleRegularMessage(String data) {
+
+    int n = 0;
+    UsageMsg usage;
+    usage.src = xml_parse(data, "src", n);
+    usage.dsb = xml_parse(data, "dsb", n).toInt();
+    usage.time = xml_parse(data, "time", n);
+    usage.tmpr = xml_parse(data, "tmpr", n).toFloat();
+    usage.sensor_id = xml_parse(data, "id", n);
+    usage.sensor_tp = xml_parse(data, "type", n).toInt();
+    usage.ch1_watts = xml_parse(data, "watts", n).toInt();
+    usage.ch2_watts = xml_parse(data, "watts", n).toInt();
+
+    //cal cost
+
+    doAnomolyDetection(&usage);
+
+
 
 /*
 
@@ -265,72 +259,64 @@ If electricity costs $0.12 per kWh, then a 100 watt light bulb will cost 1.2 cen
 
 */
 
-  debug_msg(usage);
-  firebase_write(usage);
+    debug_msg(usage);
+    firebase_write(usage);
 }
 
-void debug_msg(UsageMsg msg)
-{
+
+void debug_msg(UsageMsg msg) {
 #ifdef VERBOSE
-  Serial.printf("src: %s, dsb: %d, time: %s, tmpr: %f, sensor_id: %s, sensor_tp: %d, ch1_watts: %d, ch2_watts: %d\r\n",
-                msg.src, msg.dsb, msg.time, msg.tmpr, msg.sensor_id, msg.sensor_tp, msg.ch1_watts, msg.ch2_watts);
+    Serial.printf("src: %s, dsb: %d, time: %s, tmpr: %f, sensor_id: %s, sensor_tp: %d, ch1_watts: %d, ch2_watts: %d\r\n",
+                  msg.src, msg.dsb, msg.time, msg.tmpr, msg.sensor_id, msg.sensor_tp, msg.ch1_watts, msg.ch2_watts);
 #endif
 }
 
-void firebase_write(UsageMsg msg)
-{
-  if (Firebase.ready())
-  {
+void firebase_write(UsageMsg msg) {
+    if (Firebase.ready()) {
 
-    
-    timestamp = getTime();
-    Serial.print("time: ");
-    Serial.println(timestamp);
 
-    parentPath = databasePath + "/" + String(timestamp);
+        timestamp = getTime();
+        Serial.print("time: ");
+        Serial.println(timestamp);
 
-    FirebaseJson json;
+        parentPath = databasePath + "/" + String(timestamp);
 
-    json.set("/timestamp", String(timestamp));
-    json.set("/dsb", msg.dsb);
-    json.set("/time", msg.time);
-    json.set("/tmpr", String(msg.tmpr));
-    json.set("/sensor_id", msg.sensor_id);
-    json.set("/sensor_tp", msg.sensor_tp);
-    json.set("/ch1_watts", String(msg.ch1_watts));
-    json.set("/ch2_watts", String(msg.ch2_watts));
+        FirebaseJson json;
 
-    Serial.printf("Set json... %s\n", 
-      Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
-    
-  }
+        json.set("/timestamp", String(timestamp));
+        json.set("/dsb", msg.dsb);
+        json.set("/time", msg.time);
+        json.set("/tmpr", String(msg.tmpr));
+        json.set("/sensor_id", msg.sensor_id);
+        json.set("/sensor_tp", msg.sensor_tp);
+        json.set("/ch1_watts", String(msg.ch1_watts));
+        json.set("/ch2_watts", String(msg.ch2_watts));
+
+        Serial.printf("Set json... %s\n",
+                      Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+
+    }
 }
 
-void firebase_write_old(UsageMsg msg)
-{
-  if (Firebase.ready())
-  {
-    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/src", msg.src));
-    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/dsb", msg.dsb));
-    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/time", msg.time));
-    evaluate(Firebase.RTDB.setFloat(&fbdo, "Usage/tmpr", msg.tmpr));
-    evaluate(Firebase.RTDB.setString(&fbdo, "Usage/sensor_id", msg.sensor_id));
-    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/sensor_tp", msg.sensor_tp));
-    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch1_watts", msg.ch1_watts));
-    evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch2_watts", msg.ch2_watts));
-  }
+void firebase_write_old(UsageMsg msg) {
+    if (Firebase.ready()) {
+        evaluate(Firebase.RTDB.setString(&fbdo, "Usage/src", msg.src));
+        evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/dsb", msg.dsb));
+        evaluate(Firebase.RTDB.setString(&fbdo, "Usage/time", msg.time));
+        evaluate(Firebase.RTDB.setFloat(&fbdo, "Usage/tmpr", msg.tmpr));
+        evaluate(Firebase.RTDB.setString(&fbdo, "Usage/sensor_id", msg.sensor_id));
+        evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/sensor_tp", msg.sensor_tp));
+        evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch1_watts", msg.ch1_watts));
+        evaluate(Firebase.RTDB.setInt(&fbdo, "Usage/ch2_watts", msg.ch2_watts));
+    }
 }
 
-void evaluate(bool action)
-{
-  if (action)
-  {
-    Serial.println("PASSED:  PATH: " + fbdo.dataPath() + ", TYPE: " + fbdo.dataType());
-  }
-  else
-  {
-    Serial.println("FAILED - REASON: " + fbdo.errorReason());
-  }
+void evaluate(bool action) {
+    if (action) {
+        Serial.println("PASSED:  PATH: " + fbdo.dataPath() + ", TYPE: " + fbdo.dataType());
+    } else {
+        Serial.println("FAILED - REASON: " + fbdo.errorReason());
+    }
 }
 
 // handle the longer messages
@@ -343,49 +329,44 @@ void evaluate(bool action)
   <h564>0.000</h564></data><data><sensor>7</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</�566><h564>0.000</h564></data><data><sensor>8</sensor><h570>0.000</�570><h568>0.000</h568><h566>0.000</h566>
   <h564>0.000</h564></data><data><sensor>9</sensor><h570>0.000</h570><h568>0.000</h568><h566>0.000</h566><h564>0.000</h564></data></hist></msg>
   */
-void handleHistoryMessage(String data)
-{
+void handleHistoryMessage(String data) {
 }
 
-char *StringToChar(String str)
-{
+char *StringToChar(String str) {
 
-  int len = str.length() + 1;
+    int len = str.length() + 1;
 
-  // Prepare the character array (the buffer)
-  char *arr = new char(len);
+    // Prepare the character array (the buffer)
+    char *arr = new char(len);
 
-  // Copy it over
-  str.toCharArray(arr, len);
+    // Copy it over
+    str.toCharArray(arr, len);
 
-  arr[len] = 0;
+    arr[len] = 0;
 
-  return arr;
+    return arr;
 }
 
-void parseMessageDataAsRegex(String data)
-{
-  // REgex possibility, too fragile maybe
-  //  https://registry.platformio.org/libraries/nickgammon/Regexp/examples/Match/Match.pde
+void parseMessageDataAsRegex(String data) {
+    // REgex possibility, too fragile maybe
+    //  https://registry.platformio.org/libraries/nickgammon/Regexp/examples/Match/Match.pde
 }
 
-String xml_parse(String inStr, String needParam, int &startIndex)
-{
+String xml_parse(String inStr, String needParam, int &startIndex) {
 
-  int istart = inStr.indexOf("<" + needParam + ">", startIndex);
-  if (istart > 0)
-  {
-    int n = needParam.length();
-    int iend = inStr.indexOf("</" + needParam + ">", istart);
-    if (iend > -1)
-      startIndex = iend;
-    String result = inStr.substring(istart + n + 2, iend);
+    int istart = inStr.indexOf("<" + needParam + ">", startIndex);
+    if (istart > 0) {
+        int n = needParam.length();
+        int iend = inStr.indexOf("</" + needParam + ">", istart);
+        if (iend > -1)
+            startIndex = iend;
+        String result = inStr.substring(istart + n + 2, iend);
 
 #ifdef VERBOSE
-    Serial.println("needParam: " + needParam + ", startIndex:" + startIndex + ", result: " + result);
+        Serial.println("needParam: " + needParam + ", startIndex:" + startIndex + ", result: " + result);
 #endif
 
-    return result;
-  }
-  return "";
+        return result;
+    }
+    return "";
 }
